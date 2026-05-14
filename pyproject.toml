@@ -4,4 +4,9 @@ version = "0.1.0"
 description = "RL policy for 3D Cartesian end-effector trajectory tracking on a Franka Panda arm (Humanoid Robotics intern challenge submission)"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "matplotlib>=3.10.9",
+    "mujoco>=3.8.1",
+    "numpy>=2.4.4",
+    "robot-descriptions>=2.0.0",
+]
