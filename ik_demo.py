@@ -1,14 +1,10 @@
 """Drive the Franka Panda's hand body origin to a hardcoded 3D target
 using iterative inverse kinematics (Jacobian pseudo-inverse).
 
-Run with:
-    uv run python ik_demo.py
-
 Panda joint-limit gotcha (easy to forget):
     joint4 is constrained to negative angles only: [-3.07, -0.07] rad
     joint6 is constrained to positive angles only: [-0.02,  3.75] rad
-The IK loop clamps qpos against model.jnt_range every iteration so we
-can't drift past these.
+solve_ik clamps qpos against model.jnt_range every iteration.
 """
 
 import time
@@ -18,12 +14,14 @@ import mujoco.viewer
 import numpy as np
 from robot_descriptions import panda_mj_description
 
+from ik import solve_ik
 
-TARGET = np.array([0.5, -0.5, 0.5]) # world-frame point: 50 cm righ, 50 cm up, 50cm forward
-STEP_SIZE = 0.05                    # IK update magnitude per iteration (smaller = more frames)
+
+TARGET = np.array([0.5, -0.5, 0.5]) # world-frame point: 50 cm right, 50 cm up, 50cm forward
+STEP_SIZE = 1.0                     # IK update magnitude per iteration (smaller = more frames)
 MAX_ITERS = 200                     # safety cap
 TOL = 1e-3                          # convergence threshold: 1 mm
-VIEWER_SLEEP = 0.03                 # seconds between viewer updates (bigger = each frame held longer)
+VIEWER_SLEEP = 0.45                 # seconds between viewer updates (bigger = each frame held longer)
 
 
 def main() -> None:
@@ -36,17 +34,9 @@ def main() -> None:
 
     hand_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "hand")
 
-    # Pre-allocate Jacobian buffers; mj_jac writes into these in place.
-    # jacr is required by the API but unused for position-only IK.
-    jacp = np.zeros((3, model.nv))
-    jacr = np.zeros((3, model.nv))
-
     print(f"Target:        {TARGET}")
     print(f"Initial hand:  {data.xpos[hand_id]}")
     print("Launching viewer (close window to exit).\n")
-
-    iteration = 0
-    converged = False
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
         # Draw the target as a render-only marker on top of the model.
@@ -60,43 +50,39 @@ def main() -> None:
             rgba=np.array([1.0, 0.0, 0.0, 1.0]),
         )
 
-        while viewer.is_running() and iteration < MAX_ITERS and not converged:
+        # solve_ik runs on a scratch state; this callback mirrors each
+        # iteration back onto the live arm so we can watch it converge
+        def animate(i, err_norm, qpos):
+            print(f"  iter {i:3d}  ||error|| = {err_norm * 1000:7.3f} mm")
+            if not viewer.is_running():
+                return
+            data.qpos[:] = qpos
             mujoco.mj_forward(model, data)
-
-            current = data.xpos[hand_id]
-            error = TARGET - current
-            err_norm = np.linalg.norm(error)
-            print(f"  iter {iteration:3d}  ||error|| = {err_norm * 1000:7.3f} mm")
-
-            if err_norm < TOL:
-                converged = True
-                break
-
-            mujoco.mj_jac(model, data, jacp, jacr, current, hand_id)
-            dq = np.linalg.pinv(jacp) @ error
-
-            data.qpos += STEP_SIZE * dq
-            np.clip(
-                data.qpos,
-                model.jnt_range[:, 0],
-                model.jnt_range[:, 1],
-                out=data.qpos,
-            )
-
             viewer.sync()
             time.sleep(VIEWER_SLEEP)
-            iteration += 1
 
+        q_des = solve_ik(
+            model,
+            TARGET,
+            hand_id,
+            q_seed=data.qpos.copy(),
+            step_size=STEP_SIZE,
+            max_iters=MAX_ITERS,
+            tol=TOL,
+            on_iter=animate,
+        )
+
+        data.qpos[:] = q_des
         mujoco.mj_forward(model, data)
         final = data.xpos[hand_id]
         final_err_mm = float(np.linalg.norm(TARGET - final)) * 1000
 
-        if converged:
-            print(f"\nConverged in {iteration} iterations.")
+        if final_err_mm < TOL * 1000:
+            print(f"\nConverged. Final error: {final_err_mm:.3f} mm")
         else:
             print(f"\nDid not converge within {MAX_ITERS} iterations.")
-        print(f"  Final hand:   {final}")
-        print(f"  Final error:  {final_err_mm:.3f} mm")
+            print(f"  Final error: {final_err_mm:.3f} mm")
+        print(f"  Final hand:  {final}")
         print("\nClose the viewer window to exit.")
 
         while viewer.is_running():
