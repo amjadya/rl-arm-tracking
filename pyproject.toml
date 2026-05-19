@@ -5,8 +5,10 @@ description = "RL policy for 3D Cartesian end-effector trajectory tracking on a 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "gymnasium>=1.2.3",
     "matplotlib>=3.10.9",
     "mujoco>=3.8.1",
     "numpy>=2.4.4",
     "robot-descriptions>=2.0.0",
+    "stable-baselines3>=2.8.0",
 ]
