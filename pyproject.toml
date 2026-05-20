@@ -9,6 +9,9 @@ dependencies = [
     "matplotlib>=3.10.9",
     "mujoco>=3.8.1",
     "numpy>=2.4.4",
+    "rich>=15.0.0",
     "robot-descriptions>=2.0.0",
     "stable-baselines3>=2.8.0",
+    "tensorboard>=2.20.0",
+    "tqdm>=4.67.3",
 ]
